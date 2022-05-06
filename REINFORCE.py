@@ -7,6 +7,7 @@ import gym
 from torch.distributions import Categorical
 from Network.MLP import MLP
 from Memory.Buffer import Buffer
+from Utils.utils import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="REINFORCE")
@@ -42,17 +43,19 @@ class REINFORCE(nn.Module):
 
         return action.view(-1).detach().numpy()
 
-    def get_sample(self, s, a, r):
-        
-        s = torch.tensor(s).view(1, self.s_dim).float()
-        a = torch.tensor(a).view(1,1)
-        r = torch.tensor(r).view(1,1).float()
-        
-        self.memory.push(s, a, r)
+    def get_sample(self, s, a, r, ns, done):
+
+        s = ToTensor(s)
+        a = ToTensor(a, False)
+        r = ToTensor(r)
+        ns = ToTensor(ns)
+        done = ToTensor(done)
+
+        self.memory.push(s, a, r, ns, done)
 
     def update(self):
         
-        states, actions, rewards = self.memory.get_sample()
+        states, actions, rewards, _, _ = self.memory.get_sample()
 
         G = 0.0
         for s, a, r in zip(states[::-1], actions[::-1], rewards[::-1]):
@@ -69,7 +72,7 @@ class REINFORCE(nn.Module):
 
     def episodic_update(self):
 
-        states, actions, rewards = self.memory.get_sample()
+        states, actions, rewards, _, _ = self.memory.get_sample()
 
         G = 0.0
         Reward2Go = []
@@ -109,7 +112,7 @@ def main():
         while True:
             a = agent.get_action(s)
             ns, r, done, info = env.step(a.item())
-            agent.get_sample(s, a, r)
+            agent.get_sample(s, a, r, ns, done)
             s = ns
             cum_r += r
 
