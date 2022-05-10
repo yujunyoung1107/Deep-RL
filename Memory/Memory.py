@@ -59,11 +59,11 @@ class ReplayBuffer:
 
         indices = sample(range(0, self.size), batch_size)
 
-        s = [self.states[indice] for indice in indices]
-        a = [self.actions[indice] for indice in indices]
-        r = [self.rewards[indice] for indice in indices]
-        ns = [self.next_states[indice] for indice in indices]
-        done = [self.dones[indice] for indice in indices]
+        s = torch.cat([self.states[indice] for indice in indices], dim=0)
+        a = torch.cat([self.actions[indice] for indice in indices], dim=0)
+        r = torch.cat([self.rewards[indice] for indice in indices], dim=0)
+        ns = torch.cat([self.next_states[indice] for indice in indices], dim=0)
+        done = torch.cat([self.dones[indice] for indice in indices], dim=0)
 
         return s, a, r, ns, done
 

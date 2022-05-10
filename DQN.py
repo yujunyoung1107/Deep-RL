@@ -54,12 +54,6 @@ class DQN(nn.Module):
 
         s, a, r, ns, done = self.memory.get_sample(256)
 
-        s = torch.cat(s, dim=0)
-        a = torch.cat(a, dim=0)
-        r = torch.cat(r, dim=0)
-        ns = torch.cat(ns, dim=0)
-        done = torch.cat(done, dim=0)
-
         with torch.no_grad():
             Qmax, _ = self.Qnet_target(ns).max(dim=-1, keepdim=True)
             Q_target = r + self.gamma*Qmax*(1-done)
