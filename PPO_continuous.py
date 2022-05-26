@@ -11,36 +11,6 @@ from Network.MLP import MLP
 from Memory.Memory import Buffer
 from Utils.utils import *
 
-# class ActorCritic(nn.Module):
-
-#     def __init__(self, s_dim, a_dim, max_action):
-#         super(ActorCritic, self).__init__()
-
-#         self.s_dim = s_dim
-#         self.a_dim = a_dim
-#         self.max_action = max_action
-#         self.fc = nn.Linear(s_dim, 128)
-#         self.mu = nn.Linear(128, a_dim)
-#         self.std = nn.Linear(128, a_dim)
-#         self.vf = MLP(s_dim, 1, num_neurons=[128])
-
-#         self.ReLU = nn.ReLU()
-#         self.Tanh = nn.Tanh()
-#         self.Softplus = nn.Softplus()
-
-#     def policy(self, state):
-
-#         x = self.ReLU(self.fc(state))
-#         mu = self.Tanh(self.mu(x)) * self.max_action
-#         std = self.Softplus(self.std(x))
-#         dist = Normal(mu, std)
-
-#         return dist
-
-#     def value(self, state):
-
-#         return self.vf(state)
-
 class ActorCritic(nn.Module):
 
     def __init__(self, s_dim, a_dim, max_action):
@@ -49,8 +19,8 @@ class ActorCritic(nn.Module):
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.max_action = max_action
-        self.actor = MLP(s_dim, a_dim, num_neurons=[128], hidden_act = 'Tanh')
-        self.critic = MLP(s_dim, 1, num_neurons=[128], hidden_act = 'Tanh')
+        self.actor = MLP(s_dim, a_dim, num_neurons=[128], out_act = 'Tanh')
+        self.critic = MLP(s_dim, 1, num_neurons=[128])
         self.log_std = nn.Parameter(0.0*torch.ones(1, a_dim))
 
     def policy(self, state):
