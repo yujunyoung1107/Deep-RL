@@ -6,7 +6,7 @@ import numpy as np
 import gym
 from torch.distributions import Categorical
 from Network.MLP import MLP
-from Memory.Buffer import Buffer
+from Memory.Memory import Buffer
 from Utils.utils import *
 
 

@@ -32,6 +32,7 @@ class Buffer:
     def __len__(self):
         return len(self.states)
 
+
 class ReplayBuffer:
 
     def __init__(self, max_size):

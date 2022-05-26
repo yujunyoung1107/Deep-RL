@@ -22,11 +22,16 @@ class MLP(nn.Module):
 
         for i, (in_dim, out_dim) in enumerate(zip(input_dims, output_dims)):
             is_last = True if i == len(input_dims)-1 else False
-            self.layers.append(nn.Linear(in_dim, out_dim))
+            layer = nn.Linear(in_dim, out_dim)
+            #nn.init.normal_(layer.weight, mean=0., std=0.1)
+            #nn.init.constant_(layer.bias, 0.)
+
+            self.layers.append(layer)
             if is_last:
                 self.layers.append(self.out_act)
             else:
                 self.layers.append(self.hidden_act)
+
 
     def forward(self, xs):
 
