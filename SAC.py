@@ -54,7 +54,7 @@ class SAC(nn.Module):
     def __init__(self, s_dim, a_dim, max_action):
         super(SAC, self).__init__()
 
-        self.actor = Actor(s_dim, a_dim, 1e-4, max_action)
+        self.actor = Actor(s_dim, a_dim, 3e-4, max_action)
         self.Q1 = Qnet(s_dim, a_dim, 3e-4)
         self.Q2 = Qnet(s_dim, a_dim, 3e-4)
         self.Q1_target = Qnet(s_dim, a_dim, 3e-4)
@@ -70,7 +70,7 @@ class SAC(nn.Module):
         self.gamma = 0.99
         self.criterion = nn.MSELoss()
         self.target_entropy = -float(a_dim)
-        self.tau = 0.05
+        self.tau = 0.005
 
     def get_action(self, state):
 
@@ -98,7 +98,7 @@ class SAC(nn.Module):
             Q2 = self.Q2_target(ns, action)
 
             Q_value = torch.min(Q1, Q2)
-            Q_target = r + self.gamma * (1-done) * (Q_value - log_prob.mean(1, keepdim=True) * self.log_alpha)
+            Q_target = r + self.gamma * (1-done) * (Q_value - log_prob.mean(1, keepdim=True) * self.log_alpha.exp())
         
         Q1_loss = self.criterion(self.Q1(s,a), Q_target)
         Q2_loss = self.criterion(self.Q2(s,a), Q_target)
@@ -158,10 +158,10 @@ class SAC(nn.Module):
 
 def main():
 
-    env = gym.make('Pendulum-v0')
+    env = gym.make('BipedalWalker-v3')
     s_dim = env.observation_space.shape[0]  
     a_dim = env.action_space.shape[0]
-    high = env.action_space.high.item()
+    high = env.action_space.high[0]
 
     agent = SAC(s_dim, a_dim, high)
     agent.run_episode(env, 500)
