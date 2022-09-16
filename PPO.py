@@ -16,8 +16,8 @@ class Network(nn.Module):
     def __init__(self, s_dim, a_dim):
         super(Network, self).__init__()
 
-        self.actor = MLP(s_dim, a_dim, [64,64])
-        self.critic = MLP(s_dim, 1, [64,64])
+        self.actor = MLP(s_dim, a_dim, [256,256])
+        self.critic = MLP(s_dim, 1, [256,256])
         self.softmax = nn.Softmax(dim=-1)
         self.logmax = nn.LogSoftmax(dim=-1)
 
@@ -39,7 +39,7 @@ class PPO(nn.Module):
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.net = Network(s_dim, a_dim)
-        self.opt = torch.optim.Adam(params=self.net.parameters(), lr=1e-4)
+        self.opt = torch.optim.Adam(params=self.net.parameters(), lr=3e-5)
         self.memory = Buffer()
         self.gamma = 0.99
         self.rambda = 0.9
@@ -127,22 +127,28 @@ class PPO(nn.Module):
 def main():
 
 
-    env = gym.make('CartPole-v1')
+    env = gym.make('LunarLander-v2')
+    #env = gym.make('CartPole-v1')
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.n
     agent = PPO(s_dim, a_dim)
 
     for ep in range(2000):
         cum_r = 0
-        s = env.reset()
-        while True:        
+        s = env.reset()[0]
+        while True:       
+            env.render() 
             a = agent.get_action(s)
-            ns, r, done, info = env.step(a.item())
-            agent.get_sample(s, a, r/100, ns, done)
+            ns, r, done, trunc, _ = env.step(a.item())
+            if done == False and trunc == False:
+                new_done = False
+            else:
+                new_done = True
+            agent.get_sample(s, a, r/100, ns, new_done)
             s = ns
             cum_r += r
 
-            if done:
+            if new_done:
                 if len(agent.memory) > 100:
                     agent.update()
                 break
@@ -154,4 +160,4 @@ if __name__ == "__main__":
     main()
 
 
-    
+     

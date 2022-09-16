@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.distributions import Normal
 import numpy as np
 import gym
+import time
 from Network.MLP import MLP
 from Memory.Memory import ReplayBuffer
 from Utils.utils import *
@@ -120,40 +121,64 @@ class SAC(nn.Module):
         self.actor.opt.step()
 
         self.log_alpha_optimizer.zero_grad()
-        alpha_loss = -(self.log_alpha.exp() * (log_prob + self.target_entropy).detach()).mean()
+        alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
         alpha_loss.backward()
         self.log_alpha_optimizer.step()
 
         soft_update(self.Q1, self.Q1_target, self.tau)
         soft_update(self.Q2, self.Q2_target, self.tau)
 
+    def get_memory(self, env, size):
+
+        s = env.reset()[0]
+        for _ in range(size):
+            a = env.action_space.sample()
+            ns, r, done, trunc, _ = env.step(a)
+            if done == False and trunc == False:
+                new_done = False
+            else:
+                new_done = True
+
+            self.get_sample(s, a, r, ns, new_done)
+            s = ns
+            if new_done:
+                print('done')
+                s = env.reset()[0]
     
     def run_episode(self, env, num_episode):
 
-        reward_sum = 0.
+        start_time = time.time()
+        reward_sum = []
+        random_seed = [i*10 for i in range(1,11)]
+        self.get_memory(env, 10000)
+        print('start training')
 
         for ep in range(num_episode):
-            s = env.reset()
+            s = env.reset()[0]
+            seed = int(np.random.choice(random_seed))
             cum_r = 0
             while True:
                 a = self.get_action(s)
-                ns, r, done, _ = env.step(a)
-                self.get_sample(s,a,r,ns,done)
+                ns, r, done, trunc, _ = env.step(a)
+                if done == False and trunc == False:
+                    new_done = False
+                else:
+                    new_done = True
 
-                if len(self.memory) > 1e3:
-                    self.update()
+                self.get_sample(s,a,r,ns,new_done)
+
+                self.update()
 
                 s = ns
                 cum_r += r 
-
-                if done:
-                    print(cum_r)
-                    reward_sum += cum_r
+                if new_done:
+                    reward_sum.append(cum_r)
                     break
+            print('ep : {} | reward : {}'.format(ep, cum_r))
 
             if ep % 10 == 0 and ep != 0:
-                print('ep : {} | reward_avg : {}'.format(ep, reward_sum))
-                reward_sum = 0.
+                print('ep : {} | reward_avg : {} | time : {}'.format(ep, np.mean(reward_sum), time.time() - start_time))
+                reward_sum = []
 
 
 def main():
@@ -164,7 +189,7 @@ def main():
     high = env.action_space.high[0]
 
     agent = SAC(s_dim, a_dim, high)
-    agent.run_episode(env, 500)
+    agent.run_episode(env, 2000)
 
 
 if __name__ == '__main__':
