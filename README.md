@@ -1,4 +1,4 @@
-# RL_study
+# RL study
 (1) REINFORCE  
 (2) Vanilla Actor Critic 
 (3) Advantage Actor Critic  
