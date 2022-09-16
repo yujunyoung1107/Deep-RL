@@ -33,12 +33,12 @@ class Network(nn.Module):
 
 class PPO(nn.Module):
     
-    def __init__(self, s_dim, a_dim):
+    def __init__(self, s_dim, a_dim, device):
         super(PPO, self).__init__()
 
         self.s_dim = s_dim
         self.a_dim = a_dim
-        self.net = Network(s_dim, a_dim)
+        self.net = Network(s_dim, a_dim).to(device)
         self.opt = torch.optim.Adam(params=self.net.parameters(), lr=3e-5)
         self.memory = Buffer()
         self.gamma = 0.99
@@ -46,16 +46,17 @@ class PPO(nn.Module):
         self.clip_param = 0.2
         self.ppo_epoch = 10
         self.batch_size = 32
+        self.device = device
 
     def get_action(self, state):
 
-        state = torch.tensor(state).view(1,-1).float()
+        state = ToTensor(state).to(self.device)
 
         with torch.no_grad():
             prob, _, _ = self.net(state)
             action = Categorical(prob).sample()
 
-        return action.view(-1).numpy()
+        return action.view(-1).cpu().numpy()
 
     def get_sample(self, s, a, r, ns, done):
         
@@ -89,11 +90,11 @@ class PPO(nn.Module):
 
         s, a, r, ns, done = self.memory.get_sample()
 
-        s = torch.cat(s, dim=0)
-        a = torch.cat(a, dim=0)
-        r = torch.cat(r, dim=0)
-        ns = torch.cat(ns, dim=0)
-        done = torch.cat(done, dim=0)
+        s = torch.cat(s, dim=0).to(self.device)
+        a = torch.cat(a, dim=0).to(self.device)
+        r = torch.cat(r, dim=0).to(self.device)
+        ns = torch.cat(ns, dim=0).to(self.device)
+        done = torch.cat(done, dim=0).to(self.device)
 
         td_target, Advantage = self.calc_advantage(s, r, ns, done)
 
@@ -123,6 +124,35 @@ class PPO(nn.Module):
 
         self.memory.reset()
 
+    def run_episode(self, env, num_episode):
+
+        reward_sum = []
+
+        for ep in range(num_episode):
+            cum_r = 0
+            s = env.reset()[0]
+
+            while True:
+                a = self.get_action(s)
+                ns, r, done, trunc, _ = env.step(a.item())
+                new_done = False if (done==False and trunc==False) else True
+
+                self.get_sample(s, a, r/100, ns, new_done)
+                s = ns
+                cum_r += r
+
+                if new_done:
+                    if len(self.memory) > 100:
+                        self.update()
+                    reward_sum.append(cum_r)
+                    break
+
+            print('ep : {} | reward : {}'.format(ep, cum_r))
+
+            if ep % 10 == 0 and ep != 0:
+                print('ep : {} | reward_avg : {}'.format(ep, np.mean(reward_sum)))
+                reward_sum = []
+
 
 def main():
 
@@ -131,29 +161,13 @@ def main():
     #env = gym.make('CartPole-v1')
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.n
-    agent = PPO(s_dim, a_dim)
 
-    for ep in range(2000):
-        cum_r = 0
-        s = env.reset()[0]
-        while True:       
-            env.render() 
-            a = agent.get_action(s)
-            ns, r, done, trunc, _ = env.step(a.item())
-            if done == False and trunc == False:
-                new_done = False
-            else:
-                new_done = True
-            agent.get_sample(s, a, r/100, ns, new_done)
-            s = ns
-            cum_r += r
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(device)
 
-            if new_done:
-                if len(agent.memory) > 100:
-                    agent.update()
-                break
+    agent = PPO(s_dim, a_dim, device)
 
-        print('episode : {} | reward : {}'.format(ep, cum_r))
+    agent.run_episode(env, 1000)
         
 
 if __name__ == "__main__":

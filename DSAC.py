@@ -47,33 +47,34 @@ class Actor(nn.Module):
 
 class DSAC(nn.Module):
 
-    def __init__(self, s_dim, a_dim):
+    def __init__(self, s_dim, a_dim, device):
         super(DSAC, self).__init__()
 
-        self.actor = Actor(s_dim, a_dim, 5e-4)
-        self.Q1 = Qnet(s_dim, a_dim, 5e-4)
-        self.Q2 = Qnet(s_dim, a_dim, 5e-4)
-        self.Q1_target = Qnet(s_dim, a_dim, 5e-4)
-        self.Q2_target = Qnet(s_dim, a_dim, 5e-4)
-        self.log_alpha = torch.zeros(1)
+        self.actor = Actor(s_dim, a_dim, 5e-4).to(device)
+        self.Q1 = Qnet(s_dim, a_dim, 5e-4).to(device)
+        self.Q2 = Qnet(s_dim, a_dim, 5e-4).to(device)
+        self.Q1_target = Qnet(s_dim, a_dim, 5e-4).to(device)
+        self.Q2_target = Qnet(s_dim, a_dim, 5e-4).to(device)
+        self.log_alpha = torch.zeros(1).to(device)
         self.log_alpha.requires_grad = True
         self.log_alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=5e-4) 
 
         self.Q1_target.load_state_dict(self.Q1.state_dict())    
         self.Q2_target.load_state_dict(self.Q2.state_dict())
 
-        self.memory = ReplayBuffer(1000000)
+        self.memory = ReplayBuffer(1000000, device)
         self.gamma = 0.99
         self.criterion = nn.MSELoss()
         self.target_entropy = -a_dim
         #self.target_entropy = -np.log(1./a_dim) * 0.98
         self.tau = 1e-2
+        self.device = device
 
     def get_action(self, state):
 
-        state = ToTensor(state)
+        state = ToTensor(state).to(self.device)
         action, _, _ = self.actor(state)
-        return action.view(-1).detach().numpy() 
+        return action.view(-1).detach().cpu().numpy() 
 
     def get_sample(self, s, a, r, ns, done):
         
@@ -132,10 +133,8 @@ class DSAC(nn.Module):
         for _ in range(num_samples):
             a = env.action_space.sample()
             ns, r, done, trunc, _ = env.step(a)
-            if done == False and trunc == False:
-                new_done = False
-            else:
-                new_done = True
+            new_done = False if (done==False and trunc==False) else True
+
             self.get_sample(s,a,r,ns,new_done)
             s = ns
             if new_done:
@@ -144,25 +143,17 @@ class DSAC(nn.Module):
     
     def run_episode(self, env, num_episode):
 
-        start_time = time.time()
         reward_sum = []
-        random_seed = [i*10 for i in range(1,11)]
 
         self.get_memory(env, 10000)
 
         for ep in range(num_episode):
             s = env.reset()[0]
-            seed = int(np.random.choice(random_seed))
-            #env.seed(seed)
             cum_r = 0
             while True:
                 a = self.get_action(s)
                 ns, r, done, trunc, _ = env.step(a.item())
-
-                if done == False and trunc == False:
-                    new_done = False
-                else:
-                    new_done = True
+                new_done = False if (done==False and trunc==False) else True
 
                 self.get_sample(s,a,r,ns,new_done)
 
@@ -176,8 +167,9 @@ class DSAC(nn.Module):
                     break
 
             if ep % 10 == 0 and ep != 0:
-                print('ep : {} | reward_avg : {} | time : {}'.format(ep, np.mean(reward_sum), time.time() - start_time))
+                print('ep : {} | reward_avg : {}'.format(ep, np.mean(reward_sum)))
                 reward_sum = []
+
 
 
 
@@ -187,8 +179,13 @@ def main():
     s_dim = env.observation_space.shape[0]  
     a_dim = env.action_space.n
 
-    agent = DSAC(s_dim, a_dim)
-    agent.run_episode(env, 2000)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(device)
+
+    agent = DSAC(s_dim, a_dim, device)
+    start_time = time.time()
+    agent.run_episode(env, 100)
+    print(time.time() - start_time)
 
 
 if __name__ == '__main__':

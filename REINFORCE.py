@@ -6,42 +6,33 @@ import numpy as np
 import gym
 from torch.distributions import Categorical
 from Network.MLP import MLP
-from Memory.Buffer import Buffer
+from Memory.Memory import Buffer
 from Utils.utils import *
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="REINFORCE")
-    parser.add_argument('--update', dest='update', help='vanilla / episodic',
-                        default='vanilla', type=str)
-
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit()
-    args = parser.parse_args()
-    return args
 
 class REINFORCE(nn.Module):
 
-    def __init__(self, s_dim, a_dim):
+    def __init__(self, s_dim, a_dim, device):
         super(REINFORCE, self).__init__()
 
         self.s_dim = s_dim
         self.a_dim = a_dim
-        self.policy = MLP(s_dim, a_dim, num_neurons=[256])
+        self.policy = MLP(s_dim, a_dim, num_neurons=[256]).to(device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=3e-4)
         self.softmax = nn.Softmax(dim=-1)
         self.logmax = nn.LogSoftmax(dim=-1)
         self.memory = Buffer()
         self.gamma = 0.99
+        self.device = device
 
 
     def get_action(self, state):
 
-        state = torch.tensor(state).view(-1, self.s_dim).float()
+        state = ToTensor(state).to(self.device)
         prob = self.softmax(self.policy(state))
         action = Categorical(prob).sample()
 
-        return action.view(-1).detach().numpy()
+        return action.view(-1).detach().cpu().numpy()
 
     def get_sample(self, s, a, r, ns, done):
 
@@ -59,6 +50,7 @@ class REINFORCE(nn.Module):
 
         G = 0.0
         for s, a, r in zip(states[::-1], actions[::-1], rewards[::-1]):
+            s, a, r = s.to(self.device), a.to(self.device), r.to(self.device)
             G = r + self.gamma*G
 
             log_prob = self.logmax(self.policy(s)).view(-1)[a.item()]
@@ -80,10 +72,10 @@ class REINFORCE(nn.Module):
             G = r + self.gamma*G
             Reward2Go.insert(0,G)
 
-        Reward2Go = torch.tensor(Reward2Go).float()
+        Reward2Go = torch.tensor(Reward2Go).float().to(self.device)
         Reward2Go = (Reward2Go - Reward2Go.mean()) / Reward2Go.std()
-        states = torch.cat(states, dim=0)
-        actions = torch.cat(actions, dim=0)
+        states = torch.cat(states, dim=0).to(self.device)
+        actions = torch.cat(actions, dim=0).to(self.device)
 
         log_prob = self.logmax(self.policy(states))
         log_prob = log_prob.gather(1, actions).view(-1)
@@ -95,36 +87,49 @@ class REINFORCE(nn.Module):
         
         self.memory.reset()
 
+    def run_episode(self, env, num_episode):
+
+        reward_sum = []
+
+        for ep in range(num_episode):
+            cum_r = 0
+            s = env.reset()[0]
+
+            while True:
+                a = self.get_action(s)
+                ns, r, done, trunc, _ = env.step(a.item())
+                new_done = False if (done==False and trunc==False) else True
+
+                self.get_sample(s, a, r/100, ns, new_done)
+                s = ns
+                cum_r += r
+
+                if new_done:
+                    self.episodic_update()
+                    reward_sum.append(cum_r)
+                    break
+
+            print('ep : {} | reward : {}'.format(ep, cum_r))
+
+            if ep % 10 == 0 and ep != 0:
+                print('ep : {} | reward_avg : {}'.format(ep, np.mean(reward_sum)))
+                reward_sum = []
+
+
 
 def main():
 
-    args = parse_args()
 
     env = gym.make('CartPole-v1')
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.n
-    agent = REINFORCE(s_dim, a_dim)
 
-    for ep in range(2000):
-        cum_r = 0
-        s = env.reset()
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(device)
 
-        while True:
-            a = agent.get_action(s)
-            ns, r, done, info = env.step(a.item())
-            agent.get_sample(s, a, r, ns, done)
-            s = ns
-            cum_r += r
+    agent = REINFORCE(s_dim, a_dim, device)
 
-            if done:
-                break
-
-        if args.update == 'vanilla':
-            agent.update()
-        else:
-            agent.episodic_update()
-
-        print('episode : {} | reward : {}'.format(ep, cum_r))
+    agent.run_episode(env, 1000)
         
 
 if __name__ == "__main__":

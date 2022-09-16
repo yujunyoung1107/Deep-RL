@@ -35,7 +35,7 @@ class Buffer:
 
 class ReplayBuffer:
 
-    def __init__(self, max_size):
+    def __init__(self, max_size, device):
 
         self.max_size = max_size
         self.states = [None]*max_size
@@ -44,6 +44,7 @@ class ReplayBuffer:
         self.next_states = [None]*max_size
         self.dones = [None]*max_size
         self.size = 0
+        self.device = device
 
     def push(self, s, a, r, ns, done):
         
@@ -60,11 +61,11 @@ class ReplayBuffer:
 
         indices = sample(range(0, self.size), batch_size)
 
-        s = torch.cat([self.states[indice] for indice in indices], dim=0)
-        a = torch.cat([self.actions[indice] for indice in indices], dim=0)
-        r = torch.cat([self.rewards[indice] for indice in indices], dim=0)
-        ns = torch.cat([self.next_states[indice] for indice in indices], dim=0)
-        done = torch.cat([self.dones[indice] for indice in indices], dim=0)
+        s = torch.cat([self.states[indice] for indice in indices], dim=0).to(self.device)
+        a = torch.cat([self.actions[indice] for indice in indices], dim=0).to(self.device)
+        r = torch.cat([self.rewards[indice] for indice in indices], dim=0).to(self.device)
+        ns = torch.cat([self.next_states[indice] for indice in indices], dim=0).to(self.device)
+        done = torch.cat([self.dones[indice] for indice in indices], dim=0).to(self.device)
 
         return s, a, r, ns, done
 

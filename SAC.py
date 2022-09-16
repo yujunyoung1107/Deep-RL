@@ -52,32 +52,33 @@ class Actor(nn.Module):
 
 class SAC(nn.Module):
 
-    def __init__(self, s_dim, a_dim, max_action):
+    def __init__(self, s_dim, a_dim, max_action, device):
         super(SAC, self).__init__()
 
-        self.actor = Actor(s_dim, a_dim, 3e-4, max_action)
-        self.Q1 = Qnet(s_dim, a_dim, 3e-4)
-        self.Q2 = Qnet(s_dim, a_dim, 3e-4)
-        self.Q1_target = Qnet(s_dim, a_dim, 3e-4)
-        self.Q2_target = Qnet(s_dim, a_dim, 3e-4)
-        self.log_alpha = torch.zeros(1)
+        self.actor = Actor(s_dim, a_dim, 3e-4, max_action).to(device)
+        self.Q1 = Qnet(s_dim, a_dim, 3e-4).to(device)
+        self.Q2 = Qnet(s_dim, a_dim, 3e-4).to(device)
+        self.Q1_target = Qnet(s_dim, a_dim, 3e-4).to(device)
+        self.Q2_target = Qnet(s_dim, a_dim, 3e-4).to(device)
+        self.log_alpha = torch.zeros(1).to(device)
         self.log_alpha.requires_grad = True
         self.log_alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=1e-3) 
 
         self.Q1_target.load_state_dict(self.Q1.state_dict())    
         self.Q2_target.load_state_dict(self.Q2.state_dict())
 
-        self.memory = ReplayBuffer(1000000)
+        self.memory = ReplayBuffer(1000000, device)
         self.gamma = 0.99
         self.criterion = nn.MSELoss()
         self.target_entropy = -float(a_dim)
         self.tau = 0.005
+        self.device = device
 
     def get_action(self, state):
 
-        state = ToTensor(state)
+        state = ToTensor(state).to(self.device)
         action, log_prob = self.actor(state)
-        return action.view(-1).detach().numpy() 
+        return action.view(-1).detach().cpu().numpy() 
 
     def get_sample(self, s, a, r, ns, done):
         
@@ -142,28 +143,23 @@ class SAC(nn.Module):
             self.get_sample(s, a, r, ns, new_done)
             s = ns
             if new_done:
-                print('done')
                 s = env.reset()[0]
     
     def run_episode(self, env, num_episode):
 
-        start_time = time.time()
         reward_sum = []
-        random_seed = [i*10 for i in range(1,11)]
         self.get_memory(env, 10000)
         print('start training')
+        mean_time = []
 
         for ep in range(num_episode):
             s = env.reset()[0]
-            seed = int(np.random.choice(random_seed))
             cum_r = 0
+            T = time.time()
             while True:
                 a = self.get_action(s)
                 ns, r, done, trunc, _ = env.step(a)
-                if done == False and trunc == False:
-                    new_done = False
-                else:
-                    new_done = True
+                new_done = False if (done==False and trunc==False) else True
 
                 self.get_sample(s,a,r,ns,new_done)
 
@@ -173,12 +169,16 @@ class SAC(nn.Module):
                 cum_r += r 
                 if new_done:
                     reward_sum.append(cum_r)
+                    mean_time.append(time.time() - T)
                     break
+
             print('ep : {} | reward : {}'.format(ep, cum_r))
 
             if ep % 10 == 0 and ep != 0:
-                print('ep : {} | reward_avg : {} | time : {}'.format(ep, np.mean(reward_sum), time.time() - start_time))
+                print('ep : {} | reward_avg : {}'.format(ep, np.mean(reward_sum)))
                 reward_sum = []
+
+        print('total time : ', np.mean(mean_time))
 
 
 def main():
@@ -188,8 +188,12 @@ def main():
     a_dim = env.action_space.shape[0]
     high = env.action_space.high[0]
 
-    agent = SAC(s_dim, a_dim, high)
-    agent.run_episode(env, 2000)
+    #device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cpu')
+    print(device)
+
+    agent = SAC(s_dim, a_dim, high, device)
+    agent.run_episode(env, 200)
 
 
 if __name__ == '__main__':

@@ -37,13 +37,13 @@ class ActorCritic(nn.Module):
 
 class PPO(nn.Module):
     
-    def __init__(self, s_dim, a_dim, max_action):
+    def __init__(self, s_dim, a_dim, max_action, device):
         super(PPO, self).__init__()
 
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.max_action = max_action
-        self.network = ActorCritic(s_dim, a_dim, max_action)
+        self.network = ActorCritic(s_dim, a_dim, max_action).to(device)
         self.optimizer = torch.optim.Adam(params=self.network.parameters(), lr=3e-4)
         self.memory = Buffer()
         self.gamma = 0.9
@@ -52,17 +52,18 @@ class PPO(nn.Module):
         self.ppo_epoch = 10
         self.batch_size = 32
         self.criteria = nn.SmoothL1Loss()
+        self.device = device
 
     def get_action(self, state):
 
-        state = torch.tensor(state).view(1,-1).float()
+        state = ToTensor(state).to(self.device)
 
         with torch.no_grad():
             dist = self.network.policy(state)
         
         action = dist.sample()
 
-        return action.view(-1).numpy()
+        return action.view(-1).cpu().numpy()
 
     def get_sample(self, s, a, r, ns, done):
         
@@ -96,11 +97,11 @@ class PPO(nn.Module):
 
         s, a, r, ns, done = self.memory.get_sample()
 
-        s = torch.cat(s, dim=0)
-        a = torch.cat(a, dim=0)
-        r = torch.cat(r, dim=0)
-        ns = torch.cat(ns, dim=0)
-        done = torch.cat(done, dim=0)
+        s = torch.cat(s, dim=0).to(self.device)
+        a = torch.cat(a, dim=0).to(self.device)
+        r = torch.cat(r, dim=0).to(self.device)
+        ns = torch.cat(ns, dim=0).to(self.device)
+        done = torch.cat(done, dim=0).to(self.device)
 
         td_target, Advantage = self.calc_advantage(s, r, ns, done)
 
@@ -132,38 +133,49 @@ class PPO(nn.Module):
 
         self.memory.reset()
 
+    def run_episode(self, env, num_episode):
+
+        reward_sum = []
+
+        for ep in range(num_episode):
+            cum_r = 0
+            s = env.reset()[0]
+
+            while True:
+                a = self.get_action(s)
+                ns, r, done, trunc, _ = env.step(a)
+                new_done = False if (done==False and trunc==False) else True
+
+                self.get_sample(s, a, r/10, ns, new_done)
+                s = ns
+                cum_r += r
+
+                if new_done:
+                    if len(self.memory) > 100:
+                        self.update()
+                    reward_sum.append(cum_r)
+                    break
+
+            print('ep : {} | reward : {}'.format(ep, cum_r))
+
+            if ep % 10 == 0 and ep != 0:
+                print('ep : {} | reward_avg : {}'.format(ep, np.mean(reward_sum)))
+                reward_sum = []
+
 
 def main():
 
-    env = gym.make('Pendulum-v0')
+    env = gym.make('Pendulum-v1')
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
     max_action = env.action_space.high[0]
 
-    agent = PPO(s_dim, a_dim, max_action)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(device)
 
-    mean_array = []
+    agent = PPO(s_dim, a_dim, max_action, device)
 
-    for ep in range(2000):
-        cum_r = 0
-        s = env.reset()
-        while True:        
-            a = agent.get_action(s)
-            ns, r, done, info = env.step(a)
-            agent.get_sample(s, a, r/10., ns, done)
-
-            s = ns
-            cum_r += r
-
-            if done:
-                break
-
-        mean_array.append(cum_r)
-        agent.update()
-
-        if ep % 20 == 0 and ep != 0:
-            print('{}th episode {} mean reward'.format(ep, np.mean(mean_array)))
-            mean_array = []
+    agent.run_episode(env, 1000)
 
 
 if __name__ == "__main__":

@@ -6,19 +6,19 @@ import numpy as np
 import gym
 from torch.distributions import Categorical
 from Network.MLP import MLP
-from Memory.Buffer import Buffer
+from Memory.Memory import Buffer
 from Utils.utils import *
 
 
 class ActorCritic(nn.Module):
     
-    def __init__(self, s_dim, a_dim):
+    def __init__(self, s_dim, a_dim, device):
         super(ActorCritic, self).__init__()
 
         self.s_dim = s_dim
         self.a_dim = a_dim
-        self.actor = MLP(s_dim, a_dim, num_neurons=[256])
-        self.critic = MLP(s_dim, 1, num_neurons=[256])
+        self.actor = MLP(s_dim, a_dim, num_neurons=[256]).to(device)
+        self.critic = MLP(s_dim, 1, num_neurons=[256]).to(device)
         self.softmax = nn.Softmax(dim=-1)
         self.logmax = nn.LogSoftmax(dim=-1)
         self.parameters = list(self.actor.parameters()) + list(self.critic.parameters())
@@ -27,15 +27,16 @@ class ActorCritic(nn.Module):
         self.criteria = nn.SmoothL1Loss()
         self.memory = Buffer()
         self.gamma = 0.99
+        self.device = device
 
 
     def get_action(self, state):
 
-        state = torch.tensor(state).view(-1, self.s_dim).float()
+        state = ToTensor(state).to(self.device)
         prob = self.softmax(self.actor(state))
         action = Categorical(prob).sample()
 
-        return action.view(-1).detach().numpy()
+        return action.view(-1).detach().cpu().numpy()
 
 
     def get_sample(self, s, a, r, ns, done):
@@ -53,11 +54,11 @@ class ActorCritic(nn.Module):
 
         s, a, r, ns, done = self.memory.get_sample()
 
-        s = torch.cat(s, dim=0).float()
-        a = torch.cat(a, dim=0)
-        r = torch.cat(r, dim=0).float()
-        ns = torch.cat(ns, dim=0).float()
-        done = torch.cat(done, dim=0).float()
+        s = torch.cat(s, dim=0).float().to(self.device)
+        a = torch.cat(a, dim=0).to(self.device)
+        r = torch.cat(r, dim=0).float().to(self.device)
+        ns = torch.cat(ns, dim=0).float().to(self.device)
+        done = torch.cat(done, dim=0).float().to(self.device)
 
         log_prob = self.logmax(self.actor(s)).gather(1,a)
         value = self.critic(s)
@@ -76,29 +77,47 @@ class ActorCritic(nn.Module):
         
         self.memory.reset()
 
+    def run_episode(self, env, num_episode):
+
+        reward_sum = []
+
+        for ep in range(num_episode):
+            cum_r = 0
+            s = env.reset()[0]
+
+            while True:
+                a = self.get_action(s)
+                ns, r, done, trunc, _ = env.step(a.item())
+                new_done = False if (done==False and trunc==False) else True
+
+                self.get_sample(s, a, r/100, ns, new_done)
+                s = ns
+                cum_r += r
+
+                if new_done:
+                    self.update()
+                    reward_sum.append(cum_r)
+                    break
+
+            print('ep : {} | reward : {}'.format(ep, cum_r))
+
+            if ep % 10 == 0 and ep != 0:
+                print('ep : {} | reward_avg : {}'.format(ep, np.mean(reward_sum)))
+                reward_sum = []
+
 def main():
 
 
     env = gym.make('CartPole-v1')
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.n
-    agent = ActorCritic(s_dim, a_dim)
 
-    for ep in range(2000):
-        cum_r = 0
-        s = env.reset()
-        while True:        
-            a = agent.get_action(s)
-            ns, r, done, info = env.step(a.item())
-            agent.get_sample(s, a, r/100, ns, done)
-            s = ns
-            cum_r += r
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(device)
 
-            if done:
-                agent.update()
-                break
+    agent = ActorCritic(s_dim, a_dim, device)
 
-        print('episode : {} | reward : {}'.format(ep, cum_r))
+    agent.run_episode(env, 1000)
         
 
 if __name__ == "__main__":
